@@ -64,6 +64,7 @@ namespace StructuredXmlEditor.Definition
 			item.X = TryParseFloat(element, MetaNS + "X");
 			item.Y = TryParseFloat(element, MetaNS + "Y");
 			item.GUID = element.Attribute("GUID")?.Value?.ToString();
+			item.Comment = element.Attribute(MetaNS + "Comment")?.Value?.ToString();
 
 			var commentTexts = Children.Where(e => e is CommentDefinition).Select(e => (e as CommentDefinition).Text);
 
@@ -227,6 +228,7 @@ namespace StructuredXmlEditor.Definition
 
 			el.Add(new XAttribute(MetaNS + "X", si.X));
 			el.Add(new XAttribute(MetaNS + "Y", si.Y));
+			if (si.Comment != null) el.Add(new XAttribute(MetaNS + "Comment", si.Comment));
 
 			if (string.IsNullOrWhiteSpace(ChildAsGUID) && (si.LinkParents.Count > 1 || si.DataModel.FlattenData))
 			{

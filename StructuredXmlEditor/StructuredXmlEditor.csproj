@@ -27,6 +27,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <LangVersion>default</LangVersion>
+    <UseVSHostingProcess>false</UseVSHostingProcess>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -52,6 +53,8 @@
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.CSharp" />
@@ -136,16 +139,22 @@
     <Compile Include="Tools\ProjectView\ProjectItem.cs" />
     <Compile Include="Tools\ProjectView\ProjectViewTool.cs" />
     <Compile Include="Tools\StartPage.cs" />
+    <Compile Include="Tools\TemplateCreatorTool.cs" />
     <Compile Include="Tools\ToolBase.cs" />
     <Compile Include="Tools\UndoHistoryTool.cs" />
     <Compile Include="Util\DescendantPropertyChangedEventArgs.cs" />
     <Compile Include="Util\Email.cs" />
     <Compile Include="Util\Extensions.cs" />
     <Compile Include="Util\Future.cs" />
+    <Compile Include="Util\ISelectable.cs" />
+    <Compile Include="Util\OpenFolderDialog.cs" />
     <Compile Include="Util\Pool.cs" />
     <Compile Include="Util\SerializableDictionary.cs" />
     <Compile Include="Util\UndoRedoManager.cs" />
     <Compile Include="Util\VersionInfo.cs" />
+    <Compile Include="View\CustomControls\AnimatedImage.xaml.cs">
+      <DependentUpon>AnimatedImage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="View\CustomControls\AsciiGrid.cs" />
     <Compile Include="View\CustomControls\ColourPicker\ColorCanvas.cs" />
     <Compile Include="View\CustomControls\ColourPicker\ColorSpectrumSlider.cs" />
@@ -159,6 +168,7 @@
     </Compile>
     <Compile Include="View\CustomControls\Graph\Connection.cs" />
     <Compile Include="View\CustomControls\Graph\Graph.cs" />
+    <Compile Include="View\CustomControls\Graph\GraphComment.cs" />
     <Compile Include="View\CustomControls\Graph\GraphNode.cs" />
     <Compile Include="View\CustomControls\Graph\GraphNodeData.cs" />
     <Compile Include="View\CustomControls\Graph\LinkWrapper.cs" />
@@ -175,15 +185,23 @@
     <Compile Include="View\CustomControls\StartPageView.xaml.cs">
       <DependentUpon>StartPageView.xaml</DependentUpon>
     </Compile>
+    <Compile Include="View\CustomControls\TemplateCreatorToolView.xaml.cs">
+      <DependentUpon>TemplateCreatorToolView.xaml</DependentUpon>
+    </Compile>
     <Compile Include="View\CustomControls\Timeline.cs" />
     <Compile Include="View\CustomControls\UndoHistoryView.xaml.cs">
       <DependentUpon>UndoHistoryView.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="View\SharedResourceDictionary.cs" />
+    <Compile Include="View\Styles\Graph.xaml.cs">
+      <DependentUpon>Graph.xaml</DependentUpon>
     </Compile>
     <Compile Include="View\Styles\XmlDataView.xaml.cs">
       <DependentUpon>XmlDataView.xaml</DependentUpon>
     </Compile>
     <Compile Include="View\ValueConverters\ActiveDocumentConverter.cs" />
     <Compile Include="View\ValueConverters\ColourMarkupConverter.cs" />
+    <Compile Include="View\ValueConverters\ContrastTextConverter.cs" />
     <Compile Include="View\ValueConverters\ConverterBase.cs" />
     <Compile Include="Util\DeferableObservableCollection.cs" />
     <Compile Include="View\CustomControls\MultilineTextEditor.cs" />
@@ -210,6 +228,10 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Page Include="View\CustomControls\AnimatedImage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="View\CustomControls\DocumentView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -227,6 +249,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="View\CustomControls\StartPageView.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="View\CustomControls\TemplateCreatorToolView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -395,6 +421,12 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Resources\Shape.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Resources\File.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Resources\DefIcon.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="..\packages\Fody.1.29.4\build\dotnet\Fody.targets" Condition="Exists('..\packages\Fody.1.29.4\build\dotnet\Fody.targets')" />

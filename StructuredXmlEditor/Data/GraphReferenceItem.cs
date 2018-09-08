@@ -158,6 +158,9 @@ namespace StructuredXmlEditor.Data
 		private GraphNodeDataLink m_link;
 
 		//-----------------------------------------------------------------------
+		public List<GraphReferenceControlPoint> ControlPoints { get; } = new List<GraphReferenceControlPoint>();
+
+		//-----------------------------------------------------------------------
 		public string GuidToResolve { get; set; }
 
 		//-----------------------------------------------------------------------
@@ -507,6 +510,52 @@ namespace StructuredXmlEditor.Data
 				WrappedItem = item;
 			},
 			"Clear Item " + Definition.Name);
+		}
+	}
+
+	public class GraphReferenceControlPoint : NotifyPropertyChanged
+	{
+		public Point Position
+		{
+			get { return m_position; }
+			set
+			{
+				Item.UndoRedo.DoValueChange<Point>(this,
+					m_position, null, value, null,
+					(pos, data) =>
+					{
+						m_position = pos;
+						RaisePropertyChangedEvent("Position");
+					},
+					"Position");
+			}
+		}
+		private Point m_position;
+
+		public bool Flip
+		{
+			get { return m_flip; }
+			set
+			{
+				Item.UndoRedo.DoValueChange<bool>(this,
+					m_flip, null, value, null,
+					(pos, data) =>
+					{
+						m_flip = pos;
+						RaisePropertyChangedEvent("Flip");
+					},
+					"Flip");
+			}
+		}
+		private bool m_flip;
+
+		private GraphReferenceItem Item;
+
+		public GraphReferenceControlPoint(GraphReferenceItem item, Point pos, bool flip = false)
+		{
+			this.m_position = pos;
+			this.Item = item;
+			this.Flip = flip;
 		}
 	}
 }

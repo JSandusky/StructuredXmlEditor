@@ -1,5 +1,6 @@
 ﻿using StructuredXmlEditor.Data;
 using StructuredXmlEditor.Definition;
+using StructuredXmlEditor.Util;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -13,6 +14,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Xml.Linq;
 
 namespace StructuredXmlEditor.View
 {
@@ -27,21 +29,32 @@ namespace StructuredXmlEditor.View
 		//-----------------------------------------------------------------------
 		public Graph()
 		{
-			Future.Call(() => 
+			Future.SafeCall(() => 
 			{
 				Offset = new Point(ActualWidth / 3, ActualHeight / 3);
-
 			}, 10);
 		}
 
 		//-----------------------------------------------------------------------
-		public IEnumerable<GraphNode> Selected
+		public IEnumerable<IGraphSelectable> Selected
 		{
 			get
 			{
 				foreach (var node in Nodes)
 				{
 					if (node.IsSelected) yield return node;
+
+					foreach (var data in node.Datas)
+					{
+						var link = data as GraphNodeDataLink;
+						if (link != null)
+						{
+							foreach (var point in link.ControlPoints)
+							{
+								if (point.IsSelected) yield return point;
+							}
+						}
+					}
 				}
 			}
 		}
@@ -67,6 +80,17 @@ namespace StructuredXmlEditor.View
 		//-----------------------------------------------------------------------
 		public static readonly DependencyProperty AllowReferenceLinksProperty =
 			DependencyProperty.Register("AllowReferenceLinks", typeof(bool), typeof(Graph), new PropertyMetadata(false, null));
+
+		//-----------------------------------------------------------------------
+		public XmlDataModel XmlDataModel
+		{
+			get { return (XmlDataModel)GetValue(XmlDataModelProperty); }
+			set { SetValue(XmlDataModelProperty, value); }
+		}
+
+		//-----------------------------------------------------------------------
+		public static readonly DependencyProperty XmlDataModelProperty =
+			DependencyProperty.Register("XmlDataModel", typeof(XmlDataModel), typeof(Graph), new PropertyMetadata(null, null));
 
 		//-----------------------------------------------------------------------
 		public IEnumerable<GraphNode> Nodes
@@ -100,15 +124,90 @@ namespace StructuredXmlEditor.View
 			}));
 
 		//-----------------------------------------------------------------------
+		public IEnumerable<GraphComment> Comments
+		{
+			get { return (IEnumerable<GraphComment>)GetValue(CommentsProperty); }
+			set { SetValue(CommentsProperty, value); }
+		}
+		private List<GraphComment> commentCache = new List<GraphComment>();
+
+		//-----------------------------------------------------------------------
+		public static readonly DependencyProperty CommentsProperty =
+			DependencyProperty.Register("Comments", typeof(IEnumerable<GraphComment>), typeof(Graph), new PropertyMetadata(new List<GraphComment>(), (s, a) =>
+			{
+				var g = (Graph)s;
+
+				foreach (GraphComment item in g.commentCache)
+				{
+					item.PropertyChanged -= g.ChildPropertyChangedHandler;
+				}
+
+				g.commentCache.Clear();
+				g.commentCache.AddRange(g.Comments);
+
+				foreach (GraphComment item in g.Comments)
+				{
+					item.Graph = g;
+					item.PropertyChanged += g.ChildPropertyChangedHandler;
+				}
+
+				g.UpdateControls();
+			}));
+
+		//-----------------------------------------------------------------------
 		public IEnumerable<Control> Controls
 		{
 			get
 			{
+				foreach (var comment in Comments)
+				{
+					yield return comment;
+				}
+
 				foreach (var node in Nodes)
 				{
 					foreach (var data in node.Datas)
 					{
-						if (data is GraphNodeDataLink) yield return new LinkWrapper(data as GraphNodeDataLink);
+						if (data is GraphNodeDataLink)
+						{
+							var link = data as GraphNodeDataLink;
+							if (link.Link != null && link.GraphReferenceItem.IsVisibleFromBindings)
+							{
+								var draw = true;
+								if (node.HiddenBy != null && link.Link.HiddenBy != null)
+								{
+									if (node.HiddenBy == link.Link.HiddenBy)
+									{
+										// dont draw
+										draw = false;
+									}
+									else
+									{
+										yield return new CommentToCommentLinkWrapper(link, node.HiddenBy, link.Link.HiddenBy);
+									}
+								}
+								else if (node.HiddenBy != null && link.Link.HiddenBy == null)
+								{
+									yield return new CommentToNodeLinkWrapper(link, node.HiddenBy);
+								}
+								else if (node.HiddenBy == null && link.Link.HiddenBy != null)
+								{
+									yield return new NodeToCommentLinkWrapper(link, link.Link.HiddenBy);
+								}
+								else
+								{
+									yield return new LinkWrapper(link);
+								}
+
+								if (draw)
+								{
+									foreach (var controlPoint in link.ControlPoints)
+									{
+										yield return controlPoint;
+									}
+								}
+							}
+						}
 					}
 				}
 
@@ -116,7 +215,10 @@ namespace StructuredXmlEditor.View
 
 				foreach (var node in Nodes)
 				{
-					yield return node;
+					if (node.HiddenBy == null)
+					{
+						yield return node;
+					}
 				}
 			}
 		}
@@ -130,9 +232,25 @@ namespace StructuredXmlEditor.View
 			}
 			else if (args.PropertyName == "IsSelected")
 			{
-				if ((e as GraphNode).IsSelected && !Keyboard.IsKeyDown(Key.LeftCtrl) && !Keyboard.IsKeyDown(Key.RightCtrl) && !m_isMarqueeSelecting)
+				if ((e as IGraphSelectable).IsSelected && !Keyboard.IsKeyDown(Key.LeftCtrl) && !Keyboard.IsKeyDown(Key.RightCtrl) && !m_isMarqueeSelecting)
 				{
 					foreach (var node in Nodes)
+					{
+						if (node != e)
+						{
+							node.IsSelected = false;
+						}
+
+						foreach (var point in node.ControlPoints)
+						{
+							if (point != e)
+							{
+								point.IsSelected = false;
+							}
+						}
+					}
+
+					foreach (var node in Comments)
 					{
 						if (node != e)
 						{
@@ -158,6 +276,35 @@ namespace StructuredXmlEditor.View
 			}
 		}
 		private bool UpdatingControls = false;
+
+		//-----------------------------------------------------------------------
+		private IEnumerable<GraphNodeDefinition> ValidNodeTypes
+		{
+			get
+			{
+				var validTypes = new HashSet<GraphNodeDefinition>();
+				foreach (var node in Nodes)
+				{
+					foreach (var data in node.Datas)
+					{
+						if (data is GraphNodeDataLink)
+						{
+							var link = data as GraphNodeDataLink;
+							var def = link.GraphReferenceItem.Definition as GraphReferenceDefinition;
+							foreach (var d in def.Definitions.Values)
+							{
+								validTypes.Add(d);
+							}
+						}
+					}
+				}
+
+				foreach (var def in validTypes.OrderBy(d => d.Name))
+				{
+					yield return def;
+				}
+			}
+		}
 
 		//--------------------------------------------------------------------------
 		public object MouseOverItem
@@ -198,6 +345,18 @@ namespace StructuredXmlEditor.View
 		private object m_MouseOverItem;
 
 		//--------------------------------------------------------------------------
+		public Point MousePosition
+		{
+			get
+			{
+				var pos = m_mousePoint;
+				var scaled = new Point((pos.X - Offset.X) / Scale, (pos.Y - Offset.Y) / Scale);
+
+				return scaled;
+			}
+		}
+
+		//--------------------------------------------------------------------------
 		protected override void OnMouseDown(MouseButtonEventArgs e)
 		{
 			base.OnMouseDown(e);
@@ -205,7 +364,6 @@ namespace StructuredXmlEditor.View
 			if (e.ChangedButton == MouseButton.Middle)
 			{
 				lastPanPos = e.GetPosition(this);
-				isPanning = true;
 			}
 		}
 
@@ -254,6 +412,16 @@ namespace StructuredXmlEditor.View
 				foreach (var node in Nodes)
 				{
 					node.IsSelected = false;
+
+					foreach (var point in node.ControlPoints)
+					{
+						point.IsSelected = false;
+					}
+				}
+
+				foreach (var comment in Comments)
+				{
+					comment.IsSelected = false;
 				}
 
 				Nodes.First().GraphNodeItem.DataModel.Selected = null;
@@ -281,6 +449,18 @@ namespace StructuredXmlEditor.View
 							node.IsSelected = false;
 						}
 					}
+
+					foreach (var point in node.ControlPoints)
+					{
+						if (m_marquee.IntersectsWith(GetRectOfObject(point)))
+						{
+							point.IsSelected = true;
+						}
+						else
+						{
+							point.IsSelected = false;
+						}
+					}
 				}
 
 				m_selectionBox.Visibility = Visibility.Collapsed;
@@ -295,32 +475,16 @@ namespace StructuredXmlEditor.View
 		}
 
 		//--------------------------------------------------------------------------
-		protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
+		protected override void OnMouseRightButtonDown(MouseButtonEventArgs args)
 		{
-			var pos = e.GetPosition(this);
+			var pos = args.GetPosition(this);
 			var scaled = new Point((pos.X - Offset.X) / Scale, (pos.Y - Offset.Y) / Scale);
 
 			ContextMenu menu = new ContextMenu();
 
 			var create = menu.AddItem("Create");
-			var validTypes = new HashSet<GraphNodeDefinition>();
-			foreach (var node in Nodes)
-			{
-				foreach (var data in node.Datas)
-				{
-					if (data is GraphNodeDataLink)
-					{
-						var link = data as GraphNodeDataLink;
-						var def = link.GraphReferenceItem.Definition as GraphReferenceDefinition;
-						foreach (var d in def.Definitions.Values)
-						{
-							validTypes.Add(d);
-						}
-					}
-				}
-			}
 
-			foreach (var def in validTypes.OrderBy(d => d.Name))
+			foreach (var def in ValidNodeTypes)
 			{
 				create.AddItem(def.Name, () => 
 				{
@@ -351,9 +515,213 @@ namespace StructuredXmlEditor.View
 				});
 			}
 
+			if (Clipboard.ContainsData("NodeCopy"))
+			{
+				menu.AddItem("Paste", () => { Paste(scaled); });
+			}
+
+			GraphNode clickedNode = Nodes.FirstOrDefault(e => GetRectOfObject(e).Contains(pos));
+			if (clickedNode == null)
+			{
+				clickedNode = Selected.Where(e => e is GraphNode).FirstOrDefault() as GraphNode;
+			}
+
+			if (clickedNode != null)
+			{
+				if (!clickedNode.IsSelected)
+				{
+					clickedNode.IsSelected = true;
+				}
+
+				menu.AddSeperator();
+
+				menu.AddItem("Delete", () => 
+				{
+					DeleteNodes(Selected.Where(e => e is GraphNode).Cast<GraphNode>().ToList());
+				});
+				menu.AddItem("Copy", () =>
+				{
+					Copy();
+				});
+
+				menu.AddSeperator();
+
+				var dataModel = clickedNode.GraphNodeItem.DataModel;
+				var undo = dataModel.RootItems[0].UndoRedo;
+
+				var commentMenu = menu.AddItem("Set Comment");
+
+				commentMenu.AddItem("New Comment", () =>
+				{
+					var comment = new GraphCommentItem(dataModel, undo, "", Colors.White);
+					comment.GUID = Guid.NewGuid().ToString();
+
+					undo.ApplyDoUndo(
+						delegate
+						{
+							clickedNode.GraphNodeItem.DataModel.GraphCommentItems.Add(comment);
+						},
+						delegate
+						{
+							clickedNode.GraphNodeItem.DataModel.GraphCommentItems.Remove(comment);
+						},
+						"Create Graph Comment");
+
+					foreach (var node in Selected.Where(e => e is GraphNode).Cast<GraphNode>())
+					{
+						var previous = node.GraphNodeItem.Comment;
+						var previousComment = Comments.FirstOrDefault(e => e.Comment.GUID == previous);
+
+						undo.ApplyDoUndo(
+							delegate
+							{
+								node.GraphNodeItem.Comment = comment.GUID;
+								comment.Nodes.Add(node.GraphNodeItem);
+
+								if (previousComment != null)
+								{
+									previousComment.Comment.Nodes.Remove(node.GraphNodeItem);
+								}
+							},
+							delegate
+							{
+								node.GraphNodeItem.Comment = previous;
+								comment.Nodes.Remove(node.GraphNodeItem);
+
+								if (previousComment != null)
+								{
+									previousComment.Comment.Nodes.Add(node.GraphNodeItem);
+								}
+							},
+							"Set Graph Comment");
+					}
+
+					clickedNode.GraphNodeItem.DataModel.RaisePropertyChangedEvent("GraphComments");
+				});
+
+				bool first = true;
+
+				foreach (var comment in Comments)
+				{
+					if (first)
+					{
+						commentMenu.AddSeperator();
+						first = false;
+					}
+
+					commentMenu.AddItem(comment.Comment.Title, () =>
+					{
+						foreach (var node in Selected.Where(e => e is GraphNode).Cast<GraphNode>())
+						{
+							var previous = node.GraphNodeItem.Comment;
+							var previousComment = Comments.FirstOrDefault(e => e.Comment.GUID == previous);
+
+							undo.ApplyDoUndo(
+								delegate
+								{
+									node.GraphNodeItem.Comment = comment.Comment.GUID;
+									comment.Comment.Nodes.Add(node.GraphNodeItem);
+
+									if (previousComment != null)
+									{
+										previousComment.Comment.Nodes.Remove(node.GraphNodeItem);
+									}
+								},
+								delegate
+								{
+									node.GraphNodeItem.Comment = previous;
+									comment.Comment.Nodes.Remove(node.GraphNodeItem);
+
+									if (previousComment != null)
+									{
+										previousComment.Comment.Nodes.Add(node.GraphNodeItem);
+									}
+								},
+								"Set Graph Comment");
+						}
+					});
+				}
+
+				if (clickedNode.GraphNodeItem.Comment != null)
+				{
+					menu.AddItem("Clear Comment", () => 
+					{
+						foreach (var node in Selected.Where(e => e is GraphNode).Cast<GraphNode>())
+						{
+							if (node.GraphNodeItem.Comment == null) continue;
+
+							var previous = node.GraphNodeItem.Comment;
+							var previousComment = Comments.FirstOrDefault(e => e.Comment.GUID == previous);
+
+							undo.ApplyDoUndo(
+								delegate
+								{
+									node.GraphNodeItem.Comment = null;
+
+									if (previousComment != null)
+									{
+										previousComment.Comment.Nodes.Remove(node.GraphNodeItem);
+
+										if (previousComment.Comment.Nodes.Count == 0)
+										{
+											dataModel.GraphCommentItems.Remove(previousComment.Comment);
+										}
+									}
+								},
+								delegate
+								{
+									if (previousComment != null)
+									{
+										if (!dataModel.GraphCommentItems.Contains(previousComment.Comment))
+										{
+											dataModel.GraphCommentItems.Add(previousComment.Comment);
+										}
+									}
+
+									node.GraphNodeItem.Comment = previous;
+
+									if (previousComment != null)
+									{
+										previousComment.Comment.Nodes.Add(node.GraphNodeItem);
+									}
+								},
+								"Clear Graph Comment");
+						}
+					});
+				}
+			}
+
+			if (mouseOverLink != null)
+			{
+				menu.AddSeperator();
+
+				var link = mouseOverLink;
+				var mousePos = MousePosition;
+				menu.AddItem("Create Control Point", () => 
+				{
+					link.Link.AddControlPoint(mousePos);
+				});
+			}
+
+			if (mouseOverControlPoint != null)
+			{
+				menu.AddSeperator();
+
+				var controlPoint = mouseOverControlPoint;
+				menu.AddItem("Delete Control Point", () => 
+				{
+					controlPoint.LinkParent.RemoveControlPoint(controlPoint);
+				});
+
+				menu.AddCheckable("Flip Control Point", (state) =>
+				{
+					controlPoint.Flip = !controlPoint.Flip;
+				}, controlPoint.Flip);
+			}
+
 			menu.IsOpen = true;
 
-			base.OnMouseRightButtonDown(e);
+			base.OnMouseRightButtonDown(args);
 		}
 
 		//--------------------------------------------------------------------------
@@ -384,50 +752,230 @@ namespace StructuredXmlEditor.View
 		}
 
 		//--------------------------------------------------------------------------
-		protected override void OnKeyUp(KeyEventArgs e)
+		private Rect GetRectOfObject(LinkControlPoint point)
 		{
-			base.OnKeyUp(e);
+			Rect rectangleBounds = new Rect();
 
-			if (e.Key == Key.Delete)
+			rectangleBounds.X = point.CanvasX;
+			rectangleBounds.Y = point.CanvasY;
+			rectangleBounds.Width = point.ActualWidth * Scale;
+			rectangleBounds.Height = point.ActualHeight * Scale;
+
+			return rectangleBounds;
+		}
+
+		//--------------------------------------------------------------------------
+		protected override void OnKeyUp(KeyEventArgs args)
+		{
+			base.OnKeyUp(args);
+
+			if (args.Key == Key.Delete)
 			{
-				foreach (var node in Selected.ToList())
-				{
-					if (node.GraphNodeItem.DataModel.RootItems.Contains(node.GraphNodeItem)) continue;
+				DeleteNodes(Selected.Where(e => e is GraphNode).Cast<GraphNode>().ToList());
+			}
+			else if (args.Key == Key.C && (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl)))
+			{
+				Copy();
+			}
+			else if (args.Key == Key.X && (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl)))
+			{
+				Copy();
+				DeleteNodes(Selected.Where(e => e is GraphNode).Cast<GraphNode>().ToList());
+			}
+			else if (args.Key == Key.V && (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl)))
+			{
+				var scaled = new Point((m_mousePoint.X - Offset.X) / Scale, (m_mousePoint.Y - Offset.Y) / Scale);
+				Paste(scaled);
+			}
+		}
 
-					foreach (var parent in node.GraphNodeItem.LinkParents.ToList())
+		//--------------------------------------------------------------------------
+		private void Copy()
+		{
+			var nodeData = new XElement("Nodes");
+
+			var selected = Selected.ToList();
+			foreach (var node in selected.Where(e => e is GraphNode).Cast<GraphNode>())
+			{
+				var root = new XElement("Item");
+				node.GraphNodeItem.Definition.SaveData(root, node.GraphNodeItem, true);
+				root.SetAttributeValue("Type", node.GraphNodeItem.Definition.Name);
+
+				nodeData.Add(root);
+			}
+
+			Clipboard.SetData("NodeCopy", nodeData.ToString());
+		}
+
+		//--------------------------------------------------------------------------
+		private void Paste(Point mousePos)
+		{
+			if (Clipboard.ContainsData("NodeCopy"))
+			{
+				var nodesEls = XElement.Parse((string)Clipboard.GetData("NodeCopy"));
+				var nodes = new List<GraphNodeItem>();
+
+				foreach (var itemEl in nodesEls.Elements())
+				{
+					var typeName = itemEl.Attribute("Type").Value;
+					var root = itemEl.Elements().First();
+
+					var def = ValidNodeTypes.FirstOrDefault(e => e.Name == typeName);
+
+					GraphNodeItem item = null;
+					using (XmlDataModel.UndoRedo.DisableUndoScope())
 					{
-						parent.Clear();
+						item = (GraphNodeItem)def.LoadData(root, XmlDataModel.UndoRedo);
+						if (item.Children.Count == 0 && item.Attributes.Count == 0) item = (GraphNodeItem)def.CreateData(XmlDataModel.UndoRedo);
 					}
+					item.DataModel = XmlDataModel;
+					foreach (var des in item.Descendants)
+					{
+						des.DataModel = XmlDataModel;
+					}
+
+					nodes.Add(item);
+				}
+
+				var topLeftX = nodes.Select(e => e.X).Min();
+				var topLeftY = nodes.Select(e => e.Y).Min();
+
+				using (XmlDataModel.UndoRedo.DisableUndoScope())
+				{
+					foreach (var node in nodes)
+					{
+						node.X = (node.X - topLeftX) + mousePos.X;
+						node.Y = (node.Y - topLeftY) + mousePos.Y;
+					}
+
+					var guidMap = new Dictionary<string, GraphNodeItem>();
+					foreach (var node in nodes)
+					{
+						var oldGuid = node.GUID;
+						node.GUID = Guid.NewGuid().ToString();
+
+						guidMap[oldGuid] = node;
+					}
+
+					foreach (var node in nodes)
+					{
+						foreach (var data in node.GraphData)
+						{
+							if (data is GraphReferenceItem)
+							{
+								var gri = data as GraphReferenceItem;
+								if (gri.WrappedItem != null)
+								{
+									var wrappedNodeGuid = gri.WrappedItem.GUID;
+
+									GraphNodeItem newNode;
+									if (guidMap.TryGetValue(wrappedNodeGuid, out newNode))
+									{
+										gri.WrappedItem = newNode;
+									}
+									else
+									{
+										gri.WrappedItem = null;
+									}
+								}
+
+								if (gri.GuidToResolve != null)
+								{
+									if (guidMap.ContainsKey(gri.GuidToResolve))
+									{
+										var newNode = guidMap[gri.GuidToResolve];
+										gri.WrappedItem = newNode;
+									}
+
+									gri.GuidToResolve = null;
+								}
+							}
+						}
+					}
+				}
+
+				foreach (var node in nodes)
+				{
+					XmlDataModel.UndoRedo.ApplyDoUndo(
+						delegate
+						{
+							XmlDataModel.GraphNodeItems.Add(node);
+						},
+						delegate
+						{
+							XmlDataModel.GraphNodeItems.Remove(node);
+						},
+						Name + " pasted");
+				}
+			}
+		}
+
+		//--------------------------------------------------------------------------
+		public void DeleteNodes(List<GraphNode> nodes)
+		{
+			foreach (var node in nodes)
+			{
+				if (node.GraphNodeItem.DataModel.RootItems.Contains(node.GraphNodeItem)) continue;
+
+				if (node.GraphNodeItem.Comment != null)
+				{
+					var comment = Comments.FirstOrDefault(e => e.Comment.GUID == node.GraphNodeItem.Comment);
+					var dataModel = comment.Comment.Model;
 
 					node.GraphNodeItem.UndoRedo.ApplyDoUndo(
 						delegate
 						{
-							node.GraphNodeItem.DataModel.GraphNodeItems.Remove(node.GraphNodeItem);
+							comment.Comment.Nodes.Remove(node.GraphNodeItem);
+
+							if (comment.Comment.Nodes.Count == 0)
+							{
+								dataModel.GraphCommentItems.Remove(comment.Comment);
+							}
 						},
 						delegate
 						{
-							if (!node.GraphNodeItem.DataModel.GraphNodeItems.Contains(node.GraphNodeItem)) node.GraphNodeItem.DataModel.GraphNodeItems.Add(node.GraphNodeItem);
-						},
-						"Delete " + node.GraphNodeItem.Name);
+							if (!dataModel.GraphCommentItems.Contains(comment.Comment))
+							{
+								dataModel.GraphCommentItems.Add(comment.Comment);
+							}
+
+							comment.Comment.Nodes.Add(node.GraphNodeItem);
+						}, "Remove Node Comment");
 				}
 
-				var items = Nodes.FirstOrDefault()?.GraphNodeItem?.DataModel?.SelectedItems;
-
-				if (items != null)
+				foreach (var parent in node.GraphNodeItem.LinkParents.ToList())
 				{
-					foreach (var item in items.ToList())
+					parent.Clear();
+				}
+
+				node.GraphNodeItem.UndoRedo.ApplyDoUndo(
+					delegate
 					{
-						item.IsSelected = false;
-					}
-				}
-
-				foreach (var node in Nodes)
-				{
-					node.IsSelected = false;
-				}
-
-				Nodes.First().GraphNodeItem.DataModel.Selected = null;
+						node.GraphNodeItem.DataModel.GraphNodeItems.Remove(node.GraphNodeItem);
+					},
+					delegate
+					{
+						if (!node.GraphNodeItem.DataModel.GraphNodeItems.Contains(node.GraphNodeItem)) node.GraphNodeItem.DataModel.GraphNodeItems.Add(node.GraphNodeItem);
+					},
+					"Delete " + node.GraphNodeItem.Name);
 			}
+
+			var items = Nodes.FirstOrDefault()?.GraphNodeItem?.DataModel?.SelectedItems;
+
+			if (items != null)
+			{
+				foreach (var item in items.ToList())
+				{
+					item.IsSelected = false;
+				}
+			}
+
+			foreach (var node in Nodes)
+			{
+				node.IsSelected = false;
+			}
+
+			Nodes.First().GraphNodeItem.DataModel.Selected = null;
 		}
 
 		//--------------------------------------------------------------------------
@@ -439,6 +987,9 @@ namespace StructuredXmlEditor.View
 			{
 				CreatingLink = null;
 				ConnectedLinkTo = null;
+				m_isMarqueeSelecting = false;
+				m_mightBeMarqueeSelecting = false;
+				ReleaseMouseCapture();
 			}
 			else
 			{
@@ -454,7 +1005,6 @@ namespace StructuredXmlEditor.View
 
 			if (e.MiddleButton != MouseButtonState.Pressed)
 			{
-				isPanning = false;
 				lastPanPos = e.GetPosition(this);
 			}
 			else
@@ -561,10 +1111,12 @@ namespace StructuredXmlEditor.View
 		}
 		private GraphNode m_graphNode;
 		public InProgressLinkWrapper m_inProgressLink;
+		public LinkWrapper mouseOverLink;
+		public LinkControlPoint mouseOverControlPoint;
 
 		//-----------------------------------------------------------------------
 		private bool m_mightBeMarqueeSelecting;
-		private bool m_isMarqueeSelecting;
+		public bool m_isMarqueeSelecting;
 		private Point m_marqueeStart;
 		private Rect m_marquee;
 
@@ -584,10 +1136,17 @@ namespace StructuredXmlEditor.View
 			{
 				m_offset = value;
 				RaisePropertyChangedEvent();
+
+				Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+				{
+					foreach (var comment in Comments)
+					{
+						comment.UpdateCommentSize();
+					}
+				}), System.Windows.Threading.DispatcherPriority.Loaded);
 			}
 		}
 		private Point m_offset;
-		private bool isPanning = false;
 		private Point lastPanPos;
 
 		//-----------------------------------------------------------------------
@@ -598,6 +1157,11 @@ namespace StructuredXmlEditor.View
 			{
 				m_scale = value;
 				RaisePropertyChangedEvent();
+
+				foreach (var comment in Comments)
+				{
+					comment.UpdateCommentSize();
+				}
 			}
 		}
 		private double m_scale = 01;

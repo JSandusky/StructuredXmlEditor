@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using StructuredXmlEditor.Definition;
 using StructuredXmlEditor.View;
+using System.Windows.Media;
 
 namespace StructuredXmlEditor.Data
 {
@@ -75,6 +76,18 @@ namespace StructuredXmlEditor.Data
 			}
 		}
 		private double m_y;
+
+		//-----------------------------------------------------------------------
+		public string Comment
+		{
+			get { return m_comment; }
+			set
+			{
+				m_comment = value;
+				RaisePropertyChangedEvent("Comment");
+			}
+		}
+		private string m_comment;
 
 		//-----------------------------------------------------------------------
 		public IEnumerable<DataItem> GraphData

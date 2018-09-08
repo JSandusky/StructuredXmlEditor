@@ -1,15 +1,72 @@
 ﻿<ResourceDictionary
+	x:Class="StructuredXmlEditor.View.GraphView"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:local="clr-namespace:StructuredXmlEditor.View"
 	xmlns:data="clr-namespace:StructuredXmlEditor.Data">
 
 	<ResourceDictionary.MergedDictionaries>
-		<ResourceDictionary
+		<local:SharedResourceDictionary
 			Source="Brushes.xaml" />
-		<ResourceDictionary
+		<local:SharedResourceDictionary
 			Source="GeneralStyles.xaml" />
 	</ResourceDictionary.MergedDictionaries>
+
+	<Style
+		TargetType="{x:Type local:LinkControlPoint}">
+		<Setter
+			Property="Canvas.Left"
+			Value="{Binding Path=CanvasX}" />
+		<Setter
+			Property="Canvas.Top"
+			Value="{Binding Path=CanvasY}" />
+		<Setter
+			Property="Template">
+			<Setter.Value>
+				<ControlTemplate
+					TargetType="{x:Type local:LinkControlPoint}">
+					<Border
+						Background="{Binding Colour}"
+						BorderThickness="2"
+						Width="14"
+						Height="14"
+						CornerRadius="7">
+						<Border.RenderTransform>
+							<TransformGroup>
+								<ScaleTransform
+									ScaleX="{Binding LinkParent.Graph.Scale}"
+									ScaleY="{Binding LinkParent.Graph.Scale}"
+									x:Name="scale" />
+							</TransformGroup>
+						</Border.RenderTransform>
+						<Border.Style>
+							<Style>
+								<Setter
+									Property="Border.BorderBrush"
+									Value="{StaticResource BorderLightBrush}" />
+								<Style.Triggers>
+									<DataTrigger
+										Binding="{Binding MouseOver}"
+										Value="True">
+										<Setter
+											Property="Border.BorderBrush"
+											Value="{StaticResource BorderDarkBrush}" />
+									</DataTrigger>
+									<DataTrigger
+										Binding="{Binding IsSelected}"
+										Value="true">
+										<Setter
+											Property="Border.BorderBrush"
+											Value="{StaticResource SelectionBorderBrush}" />
+									</DataTrigger>
+								</Style.Triggers>
+							</Style>
+						</Border.Style>
+					</Border>
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
 
 	<Style
 		TargetType="{x:Type local:Connection}">
@@ -63,7 +120,11 @@
 				<ControlTemplate
 					TargetType="{x:Type local:LinkWrapper}">
 					<Path
-						StrokeThickness="2">
+						x:Name="path"
+						IsHitTestVisible="True"
+						StrokeThickness="2"
+						MouseEnter="path_MouseEnter"
+						MouseLeave="path_MouseLeave">
 						<Path.RenderTransform>
 							<TransformGroup>
 								<ScaleTransform
@@ -95,13 +156,23 @@
 										Value="{x:Static data:LinkType.Reference}">
 										<Setter
 											Property="Stroke"
-											Value="MediumPurple" />
+											Value="MediumSlateBlue" />
 									</DataTrigger>
 								</Style.Triggers>
 							</Style>
 						</Path.Style>
 					</Path>
 
+					<ControlTemplate.Triggers>
+						<Trigger
+							Property="IsMouseOver"
+							Value="True">
+							<Setter
+								TargetName="path"
+								Property="StrokeThickness"
+								Value="4" />
+						</Trigger>
+					</ControlTemplate.Triggers>
 				</ControlTemplate>
 			</Setter.Value>
 		</Setter>
@@ -150,6 +221,189 @@
 	</Style>
 
 	<Style
+		TargetType="{x:Type local:NodeToCommentLinkWrapper}">
+		<Setter
+			Property="Canvas.Left"
+			Value="{Binding Link.Position.X}" />
+		<Setter
+			Property="Canvas.Top"
+			Value="{Binding Link.Position.Y}" />
+		<Setter
+			Property="Opacity"
+			Value="{Binding Link.Node.Opacity}" />
+		<Setter
+			Property="Template">
+			<Setter.Value>
+				<ControlTemplate
+					TargetType="{x:Type local:NodeToCommentLinkWrapper}">
+					<Path
+						StrokeThickness="2">
+						<Path.RenderTransform>
+							<TransformGroup>
+								<ScaleTransform
+									ScaleX="{Binding Link.Graph.Scale}"
+									ScaleY="{Binding Link.Graph.Scale}"
+									x:Name="scale" />
+							</TransformGroup>
+						</Path.RenderTransform>
+						<Path.Data>
+							<MultiBinding
+								Converter="{local:LinkPathMultiValueConverter}">
+								<Binding
+									Path="Link" />
+								<Binding
+									Path="Link.Position" />
+								<Binding
+									Path="Comment.LinkEntrance" />
+							</MultiBinding>
+						</Path.Data>
+						<Path.Style>
+							<Style
+								TargetType="{x:Type Path}">
+								<Setter
+									Property="Stroke"
+									Value="MediumSpringGreen" />
+								<Style.Triggers>
+									<DataTrigger
+										Binding="{Binding Link.GraphReferenceItem.LinkType}"
+										Value="{x:Static data:LinkType.Reference}">
+										<Setter
+											Property="Stroke"
+											Value="MediumSlateBlue" />
+									</DataTrigger>
+								</Style.Triggers>
+							</Style>
+						</Path.Style>
+					</Path>
+
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
+	<Style
+		TargetType="{x:Type local:CommentToNodeLinkWrapper}">
+		<Setter
+			Property="Canvas.Left"
+			Value="{Binding Comment.LinkExit.X}" />
+		<Setter
+			Property="Canvas.Top"
+			Value="{Binding Comment.LinkExit.Y}" />
+		<Setter
+			Property="Opacity"
+			Value="{Binding Link.Node.Opacity}" />
+		<Setter
+			Property="Template">
+			<Setter.Value>
+				<ControlTemplate
+					TargetType="{x:Type local:CommentToNodeLinkWrapper}">
+					<Path
+						StrokeThickness="2">
+						<Path.RenderTransform>
+							<TransformGroup>
+								<ScaleTransform
+									ScaleX="{Binding Link.Graph.Scale}"
+									ScaleY="{Binding Link.Graph.Scale}"
+									x:Name="scale" />
+							</TransformGroup>
+						</Path.RenderTransform>
+						<Path.Data>
+							<MultiBinding
+								Converter="{local:LinkPathMultiValueConverter}">
+								<Binding
+									Path="Link" />
+								<Binding
+									Path="Comment.LinkExit" />
+								<Binding
+									Path="Link.Link.Position" />
+							</MultiBinding>
+						</Path.Data>
+						<Path.Style>
+							<Style
+								TargetType="{x:Type Path}">
+								<Setter
+									Property="Stroke"
+									Value="MediumSpringGreen" />
+								<Style.Triggers>
+									<DataTrigger
+										Binding="{Binding Link.GraphReferenceItem.LinkType}"
+										Value="{x:Static data:LinkType.Reference}">
+										<Setter
+											Property="Stroke"
+											Value="MediumSlateBlue" />
+									</DataTrigger>
+								</Style.Triggers>
+							</Style>
+						</Path.Style>
+					</Path>
+
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
+	<Style
+		TargetType="{x:Type local:CommentToCommentLinkWrapper}">
+		<Setter
+			Property="Canvas.Left"
+			Value="{Binding CommentStart.LinkExit.X}" />
+		<Setter
+			Property="Canvas.Top"
+			Value="{Binding CommentStart.LinkExit.Y}" />
+		<Setter
+			Property="Opacity"
+			Value="{Binding Link.Node.Opacity}" />
+		<Setter
+			Property="Template">
+			<Setter.Value>
+				<ControlTemplate
+					TargetType="{x:Type local:CommentToCommentLinkWrapper}">
+					<Path
+						StrokeThickness="2">
+						<Path.RenderTransform>
+							<TransformGroup>
+								<ScaleTransform
+									ScaleX="{Binding Link.Graph.Scale}"
+									ScaleY="{Binding Link.Graph.Scale}"
+									x:Name="scale" />
+							</TransformGroup>
+						</Path.RenderTransform>
+						<Path.Data>
+							<MultiBinding
+								Converter="{local:LinkPathMultiValueConverter}">
+								<Binding
+									Path="Link" />
+								<Binding
+									Path="CommentStart.LinkExit" />
+								<Binding
+									Path="CommentEnd.LinkEntrance" />
+							</MultiBinding>
+						</Path.Data>
+						<Path.Style>
+							<Style
+								TargetType="{x:Type Path}">
+								<Setter
+									Property="Stroke"
+									Value="MediumSpringGreen" />
+								<Style.Triggers>
+									<DataTrigger
+										Binding="{Binding Link.GraphReferenceItem.LinkType}"
+										Value="{x:Static data:LinkType.Reference}">
+										<Setter
+											Property="Stroke"
+											Value="MediumSlateBlue" />
+									</DataTrigger>
+								</Style.Triggers>
+							</Style>
+						</Path.Style>
+					</Path>
+
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
+	<Style
 		TargetType="{x:Type local:GraphNodeDataPreview}">
 		<Setter
 			Property="Visibility"
@@ -160,6 +414,7 @@
 				<ControlTemplate
 					TargetType="{x:Type local:GraphNodeDataPreview}">
 					<Border
+						Height="27"
 						BorderBrush="{StaticResource WindowBackgroundBrush}"
 						BorderThickness="1"
 						Background="{StaticResource BackgroundNormalBrush}"
@@ -228,8 +483,9 @@
 				<ControlTemplate
 					TargetType="{x:Type local:GraphNodeDataComment}">
 					<Grid
+						Height="25"
 						Background="Transparent"
-						Margin="5,10,5,10">
+						Margin="5">
 						<Grid.ColumnDefinitions>
 							<ColumnDefinition
 								Width="*" />
@@ -498,8 +754,8 @@
 										Binding="{Binding MouseOver}"
 										Value="True">
 										<Setter
-											Property="Border.BorderThickness"
-											Value="3" />
+											Property="Border.BorderBrush"
+											Value="{StaticResource MouseOverBorderBrush}" />
 									</DataTrigger>
 									<DataTrigger
 										Binding="{Binding IsSelected}"
@@ -512,6 +768,145 @@
 							</Style>
 						</Border.Style>
 					</Border>
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
+	<Style
+		TargetType="{x:Type local:GraphComment}">
+		<Setter
+			Property="Canvas.Left"
+			Value="{Binding Path=CanvasX}" />
+		<Setter
+			Property="Canvas.Top"
+			Value="{Binding Path=CanvasY}" />
+		<Setter
+			Property="Width"
+			Value="{Binding Path=CommentWidth}" />
+		<Setter
+			Property="Height"
+			Value="{Binding Path=CommentHeight}" />
+		<Setter
+			Property="Template">
+			<Setter.Value>
+				<ControlTemplate
+					TargetType="{x:Type local:GraphComment}">
+					<Border>
+						<Border.RenderTransform>
+							<TransformGroup>
+								<ScaleTransform
+									ScaleX="{Binding Graph.Scale}"
+									ScaleY="{Binding Graph.Scale}"
+									x:Name="scale" />
+							</TransformGroup>
+						</Border.RenderTransform>
+
+						<Grid
+							ToolTip="{Binding Comment.ToolTip}">
+
+							<Grid.RowDefinitions>
+								<RowDefinition
+									Height="Auto" />
+								<RowDefinition
+									Height="*" />
+							</Grid.RowDefinitions>
+
+							<Grid
+								Background="{Binding Comment.ColourBrush}"
+								Opacity="0.7">
+
+								<Grid.ColumnDefinitions>
+									<ColumnDefinition
+										Width="*" />
+									<ColumnDefinition
+										Width="Auto" />
+								</Grid.ColumnDefinitions>
+								
+								<TextBlock
+									FontSize="14"
+									FontWeight="Bold"
+									Margin="5,2,5,2"
+									Foreground="{Binding Comment.Colour, Converter={local:ContrastTextConverter}}"
+									Text="{Binding Comment.Title}" />
+
+								<Button
+									Background="Transparent"
+									BorderThickness="0"
+									Width="25"
+									Command="{Binding ToggleExpandedCMD}"
+									Grid.Column="1">
+									<Path
+										x:Name="PART_Arrow"
+										IsHitTestVisible="False"
+										HorizontalAlignment="Center"
+										VerticalAlignment="Center"
+										Stroke="{Binding Comment.Colour, Converter={local:ContrastTextConverter}}"
+										Fill="{Binding Comment.Colour, Converter={local:ContrastTextConverter}}"
+										Data="M 0 0 L 4 4 L 8 0 Z"
+										RenderTransformOrigin="0.5,0.5">
+										<Path.RenderTransform>
+											<RotateTransform
+												Angle="-90" />
+										</Path.RenderTransform>
+									</Path>
+								</Button>
+
+							</Grid>
+
+							<Grid
+								Grid.Row="1"
+								Background="{Binding Comment.ColourBrush}"
+								Opacity="0.4">
+
+							</Grid>
+						</Grid>
+
+						<Border.Style>
+							<Style>
+								<Setter
+									Property="Border.BorderThickness"
+									Value="1" />
+								<Setter
+									Property="Border.BorderBrush"
+									Value="{StaticResource BorderLightBrush}" />
+								<Style.Triggers>
+									<DataTrigger
+										Binding="{Binding MouseOver}"
+										Value="True">
+										<Setter
+											Property="Border.BorderBrush"
+											Value="{StaticResource MouseOverBorderBrush}" />
+									</DataTrigger>
+									<DataTrigger
+										Binding="{Binding IsSelected}"
+										Value="true">
+										<Setter
+											Property="Border.BorderBrush"
+											Value="{StaticResource SelectionBorderBrush}" />
+									</DataTrigger>
+								</Style.Triggers>
+							</Style>
+						</Border.Style>
+
+					</Border>
+
+					<ControlTemplate.Triggers>
+
+						<DataTrigger
+							Binding="{Binding IsExpanded}"
+							Value="true">
+							<Setter
+								Property="RenderTransform"
+								TargetName="PART_Arrow">
+								<Setter.Value>
+									<RotateTransform
+										Angle="-45" />
+								</Setter.Value>
+							</Setter>
+						</DataTrigger>
+
+					</ControlTemplate.Triggers>
 				</ControlTemplate>
 			</Setter.Value>
 		</Setter>

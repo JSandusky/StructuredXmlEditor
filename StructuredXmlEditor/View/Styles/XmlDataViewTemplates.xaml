@@ -5,9 +5,9 @@
 	xmlns:v="clr-namespace:StructuredXmlEditor.View">
 
 	<ResourceDictionary.MergedDictionaries>
-		<ResourceDictionary
+		<v:SharedResourceDictionary
 			Source="Brushes.xaml" />
-		<ResourceDictionary
+		<v:SharedResourceDictionary
 			Source="GeneralStyles.xaml" />
 	</ResourceDictionary.MergedDictionaries>
 
@@ -139,20 +139,21 @@
 					</Border>
 				</v:ContentPopup.PopupContent>
 			</v:ContentPopup>
-		
+
 		</Grid>
 	</ControlTemplate>
 
 	<DataTemplate
 		DataType="{x:Type d:DummyItem}">
 		<Grid>
-			
+
 		</Grid>
 	</DataTemplate>
 
 	<DataTemplate
 		DataType="{x:Type d:TimelineItem}">
-		<Grid>
+		<Grid
+			Height="54">
 			<v:Timeline
 				Height="50"
 				Margin="2" />
@@ -162,7 +163,8 @@
 	<DataTemplate
 		DataType="{x:Type d:StringItem}">
 
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -177,18 +179,19 @@
 				Grid.Column="1"
 				VerticalAlignment="Center"
 				MaxLength="{Binding Definition.MaxLength}"
-				Text="{Binding Value, UpdateSourceTrigger=PropertyChanged, Delay=500, TargetNullValue=---}" />
+				Text="{Binding Value, UpdateSourceTrigger=PropertyChanged, TargetNullValue=---}" />
 		</Grid>
 
 	</DataTemplate>
 
 	<DataTemplate
 		DataType="{x:Type d:MultilineStringItem}">
-		<DockPanel>
+		<DockPanel
+			Height="24">
 			<ContentControl
 				DockPanel.Dock="Left"
 				Template="{StaticResource AttributesTemplate}" />
-			
+
 			<Button
 				DockPanel.Dock="Right"
 				Margin="2"
@@ -209,7 +212,8 @@
 
 	<DataTemplate
 		DataType="{x:Type d:TreeItem}">
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -233,13 +237,14 @@
 				Grid.Column="1"
 				Visibility="{Binding IsCollectionChild, Converter={v:ValueTypeConverter}}"
 				VerticalAlignment="Center"
-				Text="{Binding Value, UpdateSourceTrigger=PropertyChanged, Delay=500}" />
+				Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" />
 		</Grid>
 	</DataTemplate>
 
 	<DataTemplate
 		DataType="{x:Type d:FileItem}">
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -254,7 +259,7 @@
 			</Grid.ColumnDefinitions>
 			<ContentControl
 				Template="{StaticResource AttributesTemplate}" />
-			
+
 			<Button
 				Grid.Column="1"
 				Background="Transparent"
@@ -269,7 +274,7 @@
 			<TextBox
 				Grid.Column="2"
 				VerticalAlignment="Center"
-				Text="{Binding Value, UpdateSourceTrigger=PropertyChanged, Delay=500, TargetNullValue=---}" />
+				Text="{Binding Value, UpdateSourceTrigger=PropertyChanged,  TargetNullValue=---}" />
 			<Image
 				Grid.Column="3"
 				ToolTipService.ShowDuration="100000"
@@ -286,10 +291,24 @@
 						Source="{Binding Preview, Converter={v:NullImageConverter}}" />
 				</Image.ToolTip>
 			</Image>
+			<v:AnimatedImage
+				Grid.Column="3"
+				Width="24"
+				Height="24"
+				Margin="2"
+				Frames="{Binding Frames}"
+				Visibility="{Binding Frames.Count, Converter={v:NullOrZeroConverter}, ConverterParameter=Not}"/>
+			<Button
+				Grid.Column="4"
+				ToolTip="Create a new file"
+				Content="+"
+				Visibility="{Binding Exists, Converter={v:ValueTypeConverter}, ConverterParameter=Not}"
+				Command="{Binding CreateCMD}" />
 			<Button
 				Grid.Column="4"
 				ToolTip="Open the file for editing"
 				Content="->"
+				Visibility="{Binding Exists, Converter={v:ValueTypeConverter}}"
 				Command="{Binding OpenCMD}" />
 		</Grid>
 	</DataTemplate>
@@ -297,7 +316,8 @@
 	<DataTemplate
 		DataType="{x:Type d:NumberItem}">
 
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -314,18 +334,23 @@
 				MaxValue="{Binding Definition.MaxValue}"
 				UseIntegers="{Binding Definition.UseIntegers}"
 				DefaultValue="{Binding Definition.Default}"
+				FallbackDescription="{Binding Description}"
+				ExpressionCommand="{Binding ExpressionCMD}"
 				VerticalAlignment="Center"
-				Value="{Binding Value, UpdateSourceTrigger=PropertyChanged, Delay=500}" />
+				Value="{Binding Value, UpdateSourceTrigger=PropertyChanged}" />
 		</Grid>
 
 	</DataTemplate>
 
 	<DataTemplate
 		DataType="{x:Type d:VectorItem}">
-		<StackPanel Margin="5,0,0,0" Orientation="Horizontal">
+		<StackPanel
+			Height="24"
+			Margin="5,0,0,0"
+			Orientation="Horizontal">
 			<ContentControl
 				Template="{StaticResource AttributesTemplate}" />
-			
+
 			<DockPanel>
 				<TextBlock
 					DockPanel.Dock="Left"
@@ -340,7 +365,7 @@
 					MaxValue="{Binding Definition.MaxValue}"
 					UseIntegers="{Binding Definition.UseIntegers}"
 					DefaultValue="{Binding Definition.Default.X}"
-					Value="{Binding X, UpdateSourceTrigger=PropertyChanged, Delay=500}" />
+					Value="{Binding X, UpdateSourceTrigger=PropertyChanged}" />
 			</DockPanel>
 
 			<DockPanel>
@@ -357,7 +382,7 @@
 					MaxValue="{Binding Definition.MaxValue}"
 					UseIntegers="{Binding Definition.UseIntegers}"
 					DefaultValue="{Binding Definition.Default.Y}"
-					Value="{Binding Y, UpdateSourceTrigger=PropertyChanged, Delay=500}" />
+					Value="{Binding Y, UpdateSourceTrigger=PropertyChanged}" />
 			</DockPanel>
 
 			<DockPanel
@@ -375,7 +400,7 @@
 					MaxValue="{Binding Definition.MaxValue}"
 					UseIntegers="{Binding Definition.UseIntegers}"
 					DefaultValue="{Binding Definition.Default.Z}"
-					Value="{Binding Z, UpdateSourceTrigger=PropertyChanged, Delay=500}" />
+					Value="{Binding Z, UpdateSourceTrigger=PropertyChanged}" />
 			</DockPanel>
 
 			<DockPanel
@@ -393,14 +418,15 @@
 					MaxValue="{Binding Definition.MaxValue}"
 					UseIntegers="{Binding Definition.UseIntegers}"
 					DefaultValue="{Binding Definition.Default.W}"
-					Value="{Binding W, UpdateSourceTrigger=PropertyChanged, Delay=500}" />
+					Value="{Binding W, UpdateSourceTrigger=PropertyChanged}" />
 			</DockPanel>
 		</StackPanel>
 	</DataTemplate>
 
 	<DataTemplate
 		DataType="{x:Type d:BooleanItem}">
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -420,7 +446,8 @@
 
 	<DataTemplate
 		DataType="{x:Type d:EnumItem}">
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -442,6 +469,7 @@
 	<DataTemplate
 		DataType="{x:Type d:KeyframeItem}">
 		<ContentControl
+			Height="24"
 			VerticalAlignment="Center"
 			Margin="5,0,5,0"
 			Content="{Binding Description, Converter={v:ColourMarkupConverter}}" />
@@ -449,7 +477,8 @@
 
 	<DataTemplate
 		DataType="{x:Type d:ColourItem}">
-		<Grid>
+		<Grid
+			Height="24">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
 					Width="Auto" />
@@ -498,6 +527,7 @@
 	<DataTemplate
 		DataType="{x:Type d:StructItem}">
 		<Grid
+			Height="24"
 			VerticalAlignment="Center">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
@@ -551,6 +581,7 @@
 	<DataTemplate
 		DataType="{x:Type d:ReferenceItem}">
 		<Grid
+			Height="24"
 			VerticalAlignment="Center">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
@@ -620,6 +651,7 @@
 	<DataTemplate
 		DataType="{x:Type d:GraphStructItem}">
 		<Grid
+			Height="24"
 			VerticalAlignment="Center">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
@@ -673,6 +705,7 @@
 	<DataTemplate
 		DataType="{x:Type d:GraphReferenceItem}">
 		<Grid
+			Height="24"
 			VerticalAlignment="Center">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
@@ -754,6 +787,7 @@
 	<DataTemplate
 		DataType="{x:Type d:GraphCollectionItem}">
 		<Grid
+			Height="24"
 			VerticalAlignment="Center">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
@@ -793,12 +827,24 @@
 				Grid.Column="2"
 				Margin="20,0,20,0"
 				Visibility="{Binding ShowComboBox, Converter={v:ValueTypeConverter}}"
-				ItemsSource="{Binding AllowedChildren}"
+				ItemsSource="{Binding ItemsSource}"
 				SelectedItem="{Binding SelectedDefinition}">
+				<ComboBox.GroupStyle>
+					<GroupStyle>
+						<GroupStyle.HeaderTemplate>
+							<DataTemplate>
+								<TextBlock
+									FontWeight="Bold"
+									Foreground="{StaticResource FontDarkBlueBrush}"
+									Text="{Binding Name}" />
+							</DataTemplate>
+						</GroupStyle.HeaderTemplate>
+					</GroupStyle>
+				</ComboBox.GroupStyle>
 				<ComboBox.ItemTemplate>
 					<DataTemplate>
 						<TextBlock
-							Text="{Binding Name}" />
+							Text="{Binding Item1.Name}" />
 					</DataTemplate>
 				</ComboBox.ItemTemplate>
 			</ComboBox>
@@ -809,6 +855,7 @@
 	<DataTemplate
 		DataType="{x:Type d:CollectionItem}">
 		<Grid
+			Height="24"
 			VerticalAlignment="Center">
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition
@@ -848,12 +895,24 @@
 				Grid.Column="2"
 				Margin="20,0,20,0"
 				Visibility="{Binding ShowComboBox, Converter={v:ValueTypeConverter}}"
-				ItemsSource="{Binding AllowedChildren}"
+				ItemsSource="{Binding ItemsSource}"
 				SelectedItem="{Binding SelectedDefinition}">
+				<ComboBox.GroupStyle>
+					<GroupStyle>
+						<GroupStyle.HeaderTemplate>
+							<DataTemplate>
+								<TextBlock
+									FontWeight="Bold"
+									Foreground="{StaticResource FontDarkBlueBrush}"
+									Text="{Binding Name}" />
+							</DataTemplate>
+						</GroupStyle.HeaderTemplate>
+					</GroupStyle>
+				</ComboBox.GroupStyle>
 				<ComboBox.ItemTemplate>
 					<DataTemplate>
 						<TextBlock
-							Text="{Binding Name}" />
+							Text="{Binding Item1.Name}" />
 					</DataTemplate>
 				</ComboBox.ItemTemplate>
 			</ComboBox>

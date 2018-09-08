@@ -1,11 +1,13 @@
 ﻿using StructuredXmlEditor.Data;
 using StructuredXmlEditor.Definition;
+using StructuredXmlEditor.Util;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -16,7 +18,7 @@ using System.Windows.Media;
 
 namespace StructuredXmlEditor.View
 {
-	public class GraphNode : Control, INotifyPropertyChanged
+	public class GraphNode : Control, INotifyPropertyChanged, IGraphSelectable
 	{
 		//--------------------------------------------------------------------------
 		static GraphNode()
@@ -69,6 +71,18 @@ namespace StructuredXmlEditor.View
 				RaisePropertyChangedEvent("CanvasY");
 
 				RaisePropertyChangedEvent("Position");
+
+				foreach (var data in Datas)
+				{
+					var link = data as GraphNodeDataLink;
+					if (link != null)
+					{
+						foreach (var controlPoint in link.ControlPoints)
+						{
+							controlPoint.OnGraphPropertyChanged(sender, args);
+						}
+					}
+				}
 			}
 		}
 
@@ -151,6 +165,28 @@ namespace StructuredXmlEditor.View
 		}
 		private bool m_MouseOver;
 
+		//--------------------------------------------------------------------------
+		public IEnumerable<LinkControlPoint> ControlPoints
+		{
+			get
+			{
+				foreach (var data in Datas)
+				{
+					var link = data as GraphNodeDataLink;
+					if (link != null)
+					{
+						foreach (var point in link.ControlPoints)
+						{
+							yield return point;
+						}
+					}
+				}
+			}
+		}
+
+		//--------------------------------------------------------------------------
+		public GraphComment HiddenBy { get; set; }
+
 		//-----------------------------------------------------------------------
 		private Dictionary<DataItem, GraphNodeData> CachedNodeData = new Dictionary<DataItem, GraphNodeData>();
 
@@ -191,12 +227,12 @@ namespace StructuredXmlEditor.View
 
 			PropertyChangedEventHandler func = (e, args) => { RaisePropertyChangedEvent("Child " + args.PropertyName); };
 
-			Datas.CollectionChanged += (e, args) => 
+			Datas.CollectionChanged += (e, args) =>
 			{
 				foreach (GraphNodeData item in m_dataCache)
 				{
-					item.Node = null;
 					item.PropertyChanged -= func;
+					item.Node = null;
 				}
 
 				foreach (GraphNodeData item in Datas)
@@ -251,12 +287,20 @@ namespace StructuredXmlEditor.View
 
 		private Point m_mouseDragLast;
 		private bool m_inDrag;
-		private double m_startX;
-		private double m_startY;
+		public double m_startX;
+		public double m_startY;
+
+		//--------------------------------------------------------------------------
+		protected override void OnMouseEnter(MouseEventArgs e)
+		{
+			MouseOver = true;
+			base.OnMouseEnter(e);
+		}
 
 		//--------------------------------------------------------------------------
 		protected override void OnMouseLeave(MouseEventArgs e)
 		{
+			MouseOver = false;
 			if (Graph.MouseOverItem == this) Graph.MouseOverItem = null;
 			Graph.ConnectedLinkTo = null;
 
@@ -280,11 +324,10 @@ namespace StructuredXmlEditor.View
 			Keyboard.Focus(Graph);
 
 			m_inDrag = true;
-			m_mouseDragLast = e.GetPosition(Parent as IInputElement);
+			m_mouseDragLast = MouseUtilities.CorrectGetPosition(Graph);
 			foreach (var node in Graph.Selected)
 			{
-				node.m_startX = node.X;
-				node.m_startY = node.Y;
+				node.StoreStartPos();
 			}
 
 			this.CaptureMouse();
@@ -297,9 +340,16 @@ namespace StructuredXmlEditor.View
 		}
 
 		//--------------------------------------------------------------------------
+		public void StoreStartPos()
+		{
+			m_startX = X;
+			m_startY = Y;
+		}
+
+		//--------------------------------------------------------------------------
 		protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
 		{
-			var current = e.GetPosition(Parent as IInputElement);
+			var current = MouseUtilities.CorrectGetPosition(Graph);
 			var diff = current - m_mouseDragLast;
 
 			if (Math.Abs(diff.X) < 10 && Math.Abs(diff.Y) < 10)
@@ -355,9 +405,14 @@ namespace StructuredXmlEditor.View
 				}
 			}
 
+			if (e.LeftButton != MouseButtonState.Pressed)
+			{
+				m_inDrag = false;
+			}
+
 			if (m_inDrag)
 			{
-				var current = e.GetPosition(Parent as IInputElement);
+				var current = MouseUtilities.CorrectGetPosition(Graph);
 				var diff = current - m_mouseDragLast;
 
 				if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
@@ -410,13 +465,19 @@ namespace StructuredXmlEditor.View
 
 				foreach (var node in Graph.Selected)
 				{
-					node.X = node.m_startX + diff.X / Graph.Scale;
-					node.Y = node.m_startY + diff.Y / Graph.Scale;
+					node.Translate(new Point(diff.X / Graph.Scale, diff.Y / Graph.Scale));
 				}
 			}
 
 			base.OnMouseMove(e);
-	}
+		}
+
+		//--------------------------------------------------------------------------
+		public void Translate(Point diff)
+		{
+			X = m_startX + diff.X;
+			Y = m_startY + diff.Y;
+		}
 
 		//--------------------------------------------------------------------------
 		protected override void OnMouseUp(MouseButtonEventArgs e)
@@ -446,5 +507,26 @@ namespace StructuredXmlEditor.View
 				PropertyChanged(this, new PropertyChangedEventArgs(i_propertyName));
 			}
 		}
+	}
+
+	public static class MouseUtilities
+	{
+		public static Point CorrectGetPosition(Visual relativeTo)
+		{
+			Win32Point w32Mouse = new Win32Point();
+			GetCursorPos(ref w32Mouse);
+			return relativeTo.PointFromScreen(new Point(w32Mouse.X, w32Mouse.Y));
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		internal struct Win32Point
+		{
+			public Int32 X;
+			public Int32 Y;
+		};
+
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static extern bool GetCursorPos(ref Win32Point pt);
 	}
 }

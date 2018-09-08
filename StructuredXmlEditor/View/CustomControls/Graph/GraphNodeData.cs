@@ -1,5 +1,6 @@
 ﻿using StructuredXmlEditor.Data;
 using StructuredXmlEditor.Definition;
+using StructuredXmlEditor.Util;
 using StructuredXmlEditor.View;
 using System;
 using System.Collections.Generic;
@@ -51,9 +52,12 @@ namespace StructuredXmlEditor.View
 			get { return m_node; }
 			set
 			{
-				m_node = value;
-				RaisePropertyChangedEvent();
-				RaisePropertyChangedEvent("Graph");
+				if (m_node != value)
+				{
+					m_node = value;
+					RaisePropertyChangedEvent();
+					RaisePropertyChangedEvent("Graph");
+				}
 			}
 		}
 		private GraphNode m_node;
@@ -397,6 +401,10 @@ namespace StructuredXmlEditor.View
 				{
 					RaisePropertyChangedEvent("Title");
 				}
+				else if (args.PropertyName == "IsVisible")
+				{
+					RaisePropertyChangedEvent("Link");
+				}
 			};
 
 			if (GraphReferenceItem.Parent is StructItem && GraphReferenceItem.ReferenceDef.UseParentDescription)
@@ -412,6 +420,11 @@ namespace StructuredXmlEditor.View
 						RaisePropertyChangedEvent("FontBrush");
 					}
 				};
+			}
+
+			foreach (var controlPoint in GraphReferenceItem.ControlPoints)
+			{
+				ControlPoints.Add(new LinkControlPoint(this, controlPoint));
 			}
 
 			PropertyChanged += (e, args) => 
@@ -560,6 +573,57 @@ namespace StructuredXmlEditor.View
 		private GraphNode m_link;
 
 		//--------------------------------------------------------------------------
+		public List<LinkControlPoint> ControlPoints { get; } = new List<LinkControlPoint>();
+
+		//--------------------------------------------------------------------------
+		public void AddControlPoint(Point pos)
+		{
+			var controlPointData = new GraphReferenceControlPoint(GraphReferenceItem, pos);
+			var controlPointView = new LinkControlPoint(this, controlPointData);
+
+			GraphReferenceItem.UndoRedo.ApplyDoUndo(
+				() => 
+				{
+					GraphReferenceItem.ControlPoints.Add(controlPointData);
+					ControlPoints.Add(controlPointView);
+
+					RaisePropertyChangedEvent("Link");
+				},
+				() =>
+				{
+					GraphReferenceItem.ControlPoints.Remove(controlPointData);
+					ControlPoints.Remove(controlPointView);
+
+					RaisePropertyChangedEvent("Link");
+				},
+				"Add Control Point");
+		}
+
+		//--------------------------------------------------------------------------
+		public void RemoveControlPoint(LinkControlPoint controlPointView)
+		{
+			var controlPointData = controlPointView.controlPoint;
+			var oldIndex = ControlPoints.IndexOf(controlPointView);
+
+			GraphReferenceItem.UndoRedo.ApplyDoUndo(
+				() =>
+				{
+					GraphReferenceItem.ControlPoints.Remove(controlPointData);
+					ControlPoints.Remove(controlPointView);
+
+					RaisePropertyChangedEvent("Link");
+				},
+				() =>
+				{
+					GraphReferenceItem.ControlPoints.Insert(oldIndex, controlPointData);
+					ControlPoints.Insert(oldIndex, controlPointView);
+
+					RaisePropertyChangedEvent("Link");
+				},
+				"Remove Control Point");
+		}
+
+		//--------------------------------------------------------------------------
 		public Point Position
 		{
 			get { return m_position; }
@@ -578,5 +642,302 @@ namespace StructuredXmlEditor.View
 		public Command<string> ClearCMD { get { return new Command<string>((type) => { GraphReferenceItem.Clear(); }); } }
 		public Command<string> CreateCMD { get { return new Command<string>((type) => { GraphReferenceItem.Create(type); }); } }
 		public Command<LinkType> ChangeLinkTypeCMD { get { return new Command<LinkType>((type) => { GraphReferenceItem.LinkType = type; }); } }
+	}
+
+	public class LinkControlPoint : Control, INotifyPropertyChanged, IGraphSelectable
+	{
+		//--------------------------------------------------------------------------
+		public GraphNodeDataLink LinkParent { get; set; }
+
+		//--------------------------------------------------------------------------
+		public Point Position
+		{
+			get { return controlPoint.Position; }
+			set
+			{
+				controlPoint.Position = value;
+				RaisePropertyChangedEvent();
+				RaisePropertyChangedEvent("CanvasX");
+				RaisePropertyChangedEvent("CanvasY");
+
+				LinkParent.RaisePropertyChangedEvent("Link");
+			}
+		}
+
+		//--------------------------------------------------------------------------
+		public bool MouseOver { get; set; }
+
+		//--------------------------------------------------------------------------
+		public double CanvasX { get { return Position.X * LinkParent.Graph.Scale + LinkParent.Graph.Offset.X; } }
+		public double CanvasY { get { return Position.Y * LinkParent.Graph.Scale + LinkParent.Graph.Offset.Y; } }
+
+		//--------------------------------------------------------------------------
+		public Brush Colour
+		{
+			get { return LinkParent.GraphReferenceItem.LinkType == LinkType.Duplicate ? Brushes.MediumSpringGreen : Brushes.DarkSlateBlue; }
+		}
+
+		//--------------------------------------------------------------------------
+		public bool Flip
+		{
+			get { return controlPoint.Flip; }
+			set
+			{
+				controlPoint.Flip = value;
+				RaisePropertyChangedEvent();
+				LinkParent.RaisePropertyChangedEvent("Link");
+			}
+		}
+
+		//--------------------------------------------------------------------------
+		public bool IsSelected
+		{
+			get { return m_isSelected; }
+			set
+			{
+				if (m_isSelected != value)
+				{
+					m_isSelected = value;
+					RaisePropertyChangedEvent();
+					
+					if (value && !Keyboard.IsKeyDown(Key.LeftCtrl) && !Keyboard.IsKeyDown(Key.RightCtrl) && !LinkParent.Graph.m_isMarqueeSelecting)
+					{
+						foreach (var node in LinkParent.Graph.Nodes)
+						{
+							node.IsSelected = false;
+
+							foreach (var point in node.ControlPoints)
+							{
+								if (point != this)
+								{
+									point.IsSelected = false;
+								}
+							}
+						}
+
+						foreach (var node in LinkParent.Graph.Comments)
+						{
+							node.IsSelected = false;
+						}
+					}
+				}
+			}
+		}
+		private bool m_isSelected;
+
+		//--------------------------------------------------------------------------
+		public GraphReferenceControlPoint controlPoint;
+
+		//--------------------------------------------------------------------------
+		public LinkControlPoint(GraphNodeDataLink parent, GraphReferenceControlPoint controlPoint)
+		{
+			DataContext = this;
+
+			LinkParent = parent;
+			this.controlPoint = controlPoint;
+
+			controlPoint.PropertyChanged += (e, args) => 
+			{
+				if (args.PropertyName == "Position")
+				{
+					RaisePropertyChangedEvent("Position");
+
+					RaisePropertyChangedEvent("CanvasX");
+					RaisePropertyChangedEvent("CanvasY");
+
+					LinkParent.RaisePropertyChangedEvent("Link");
+				}
+				else if (args.PropertyName == "Flip")
+				{
+					LinkParent.RaisePropertyChangedEvent("Link");
+				}
+			};
+		}
+
+		//--------------------------------------------------------------------------
+		public void OnGraphPropertyChanged(object sender, PropertyChangedEventArgs args)
+		{
+			if (args.PropertyName == "Offset" || args.PropertyName == "Scale")
+			{
+				RaisePropertyChangedEvent("CanvasX");
+				RaisePropertyChangedEvent("CanvasY");
+			}
+		}
+
+		//--------------------------------------------------------------------------
+		protected override void OnMouseEnter(MouseEventArgs e)
+		{
+			MouseOver = true;
+			RaisePropertyChangedEvent("MouseOver");
+
+			LinkParent.Graph.mouseOverControlPoint = this;
+
+			base.OnMouseEnter(e);
+		}
+
+		//--------------------------------------------------------------------------
+		protected override void OnMouseLeave(MouseEventArgs e)
+		{
+			MouseOver = false;
+			RaisePropertyChangedEvent("MouseOver");
+
+			if (LinkParent.Graph.mouseOverControlPoint == this)
+			{
+				LinkParent.Graph.mouseOverControlPoint = null;
+			}
+
+			base.OnMouseLeave(e);
+		}
+
+		//--------------------------------------------------------------------------
+		protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+		{
+			if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+			{
+				//IsSelected = !IsSelected;
+			}
+			else
+			{
+				IsSelected = true;
+			}
+
+			m_inDrag = true;
+			m_mouseDragLast = MouseUtilities.CorrectGetPosition(LinkParent.Graph);
+
+			foreach (var node in LinkParent.Graph.Selected)
+			{
+				node.StoreStartPos();
+			}
+
+			this.CaptureMouse();
+
+			e.Handled = true;
+
+			base.OnMouseLeftButtonDown(e);
+		}
+
+		//--------------------------------------------------------------------------
+		public void StoreStartPos()
+		{
+			m_startX = Position.X;
+			m_startY = Position.Y;
+		}
+
+		//--------------------------------------------------------------------------
+		protected override void OnMouseMove(MouseEventArgs e)
+		{
+			if (e.LeftButton != MouseButtonState.Pressed)
+			{
+				m_inDrag = false;
+			}
+
+			if (m_inDrag)
+			{
+				var current = MouseUtilities.CorrectGetPosition(LinkParent.Graph);
+				var diff = current - m_mouseDragLast;
+
+				if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+				{
+					var x = m_startX + diff.X / LinkParent.Graph.Scale;
+					var y = m_startY + diff.Y / LinkParent.Graph.Scale;
+
+					double? chosenSnapX = null;
+					foreach (var snapline in LinkParent.Graph.SnapLinesX)
+					{
+						if (Math.Abs(x - snapline) < 10)
+						{
+							chosenSnapX = snapline;
+							break;
+						}
+						else if (Math.Abs((x + ActualWidth) - snapline) < 10)
+						{
+							chosenSnapX = snapline - ActualWidth;
+							break;
+						}
+					}
+
+					double? chosenSnapY = null;
+					foreach (var snapline in LinkParent.Graph.SnapLinesY)
+					{
+						if (Math.Abs(y - snapline) < 10)
+						{
+							chosenSnapY = snapline;
+							break;
+						}
+						else if (Math.Abs((y + ActualHeight) - snapline) < 10)
+						{
+							chosenSnapY = snapline - ActualHeight;
+							break;
+						}
+					}
+
+					if (chosenSnapX.HasValue)
+					{
+						x = chosenSnapX.Value;
+					}
+					if (chosenSnapY.HasValue)
+					{
+						y = chosenSnapY.Value;
+					}
+
+					diff.X = (x - m_startX) * LinkParent.Graph.Scale;
+					diff.Y = (y - m_startY) * LinkParent.Graph.Scale;
+				}
+
+				foreach (var node in LinkParent.Graph.Selected)
+				{
+					node.Translate(new Point(diff.X / LinkParent.Graph.Scale, diff.Y / LinkParent.Graph.Scale));
+				}
+			}
+
+			base.OnMouseMove(e);
+		}
+
+		//--------------------------------------------------------------------------
+		public void Translate(Point diff)
+		{
+			var newX = m_startX + diff.X;
+			var newY = m_startY + diff.Y;
+
+			Position = new Point(newX, newY);
+		}
+
+		//--------------------------------------------------------------------------
+		protected override void OnMouseUp(MouseButtonEventArgs e)
+		{
+			m_inDrag = false;
+			this.ReleaseMouseCapture();
+
+			e.Handled = true;
+
+			base.OnMouseUp(e);
+		}
+
+		//--------------------------------------------------------------------------
+		private Point m_mouseDragLast;
+		private bool m_inDrag;
+		public double m_startX;
+		public double m_startY;
+
+		//#############################################################################################
+		#region INotifyPropertyChanged
+
+		//--------------------------------------------------------------------------
+		public event PropertyChangedEventHandler PropertyChanged;
+
+		//-----------------------------------------------------------------------
+		public void RaisePropertyChangedEvent
+		(
+			[CallerMemberName] string i_propertyName = ""
+		)
+		{
+			if (PropertyChanged != null)
+			{
+				PropertyChanged(this, new PropertyChangedEventArgs(i_propertyName));
+			}
+		}
+
+		#endregion INotifyPropertyChanged
+		//#############################################################################################
 	}
 }

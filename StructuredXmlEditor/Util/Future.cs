@@ -11,35 +11,88 @@ namespace StructuredXmlEditor
 	public static class Future
 	{
 		private static object m_locker = new object();
-		private static Dictionary<object, Tuple<Action, Timer>> m_futures = new Dictionary<object, Tuple<Action, Timer>>();
+		private static Dictionary<object, FutureData> m_futures = new Dictionary<object, FutureData>();
 
 		public static void Call(Action func, int ms, object key = null)
 		{
-			if (key == null) key = new object();
+			if (key == null) { key = new object(); }
 
 			lock (m_locker)
 			{
-				if (m_futures.ContainsKey(key))
+				FutureData existing;
+				if (m_futures.TryGetValue(key, out existing))
 				{
-					m_futures[key].Item2.Change(ms, Timeout.Infinite);
+					existing.func = func;
+					existing.remainingDelayMS = ms;
 				}
 				else
 				{
-					var timer = new Timer(TimerElapsed, key, ms, Timeout.Infinite);
-					m_futures[key] = new Tuple<Action, Timer>(func, timer);
+					m_futures[key] = new FutureData(key, func, ms);
 				}
 			}
 		}
 
-		private static void TimerElapsed(object key)
+		public static void SafeCall(Action func, int ms, object key = null)
 		{
-			lock (m_locker)
+			Action safeAction = () =>
 			{
-				var data = m_futures[key];
-				m_futures.Remove(key);
+				Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+				{
+					func();
+				}));
+			};
 
-				Application.Current?.Dispatcher?.BeginInvoke(data.Item1);
-				data.Item2.Dispose();
+			Call(safeAction, ms, key);
+		}
+
+		static Future()
+		{
+			new Thread(() =>
+			{
+				Thread.CurrentThread.IsBackground = true;
+
+				var toBeProcessed = new List<FutureData>();
+
+				DateTime lastTime = DateTime.Now;
+				while (true)
+				{ 
+					Thread.Sleep(10);
+
+					lock (m_locker)
+					{
+						DateTime currentTime = DateTime.Now;
+						var expired = (int)(currentTime - lastTime).TotalMilliseconds;
+
+						toBeProcessed.AddRange(m_futures.Values);
+						foreach (var data in toBeProcessed)
+						{
+							data.remainingDelayMS -= expired;
+							if (data.remainingDelayMS <= 0)
+							{
+								m_futures.Remove(data.key);
+								data.func();
+							}
+						}
+
+						toBeProcessed.Clear();
+
+						lastTime = currentTime;
+					}
+				}
+			}).Start();
+		}
+
+		private class FutureData
+		{
+			public object key;
+			public Action func;
+			public int remainingDelayMS;
+
+			public FutureData(object key, Action func, int delayMS)
+			{
+				this.key = key;
+				this.func = func;
+				this.remainingDelayMS = delayMS;
 			}
 		}
 	}

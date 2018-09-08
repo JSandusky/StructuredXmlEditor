@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Serialization;
@@ -62,18 +63,17 @@ namespace StructuredXmlEditor.Data
 		public SerializableDictionary<string, string> Settings { get; set; }
 
 		//-----------------------------------------------------------------------
-		public ObservableCollection<string> RecentFiles { get; set; } = new ObservableCollection<string>();
+		public ObservableCollection<FileWrapper> RecentFiles { get; set; } = new ObservableCollection<FileWrapper>();
 
 		//-----------------------------------------------------------------------
-		public ObservableCollection<string> BackupDocuments { get; set; } = new ObservableCollection<string>();
+		public ObservableCollection<FileWrapper> BackupDocuments { get; set; } = new ObservableCollection<FileWrapper>();
 
 		//-----------------------------------------------------------------------
-		public IEnumerable<string> AllResourceTypes
+		public IEnumerable<DataDefinition> AllResourceTypes
 		{
 			get
 			{
-				var ordered = SupportedResourceTypes.Keys.OrderBy((e) => e);
-				foreach (var ext in ordered) yield return ext.Capitalise();
+				return SupportedResourceTypes.Values.OrderBy(e => e.Name);
 			}
 		}
 
@@ -162,14 +162,6 @@ namespace StructuredXmlEditor.Data
 			}
 
 			ProjectRoot = GetSetting<string>("ProjectRoot");
-			var recentFiles = GetSetting("RecentFiles", new string[0]);
-			foreach (var file in recentFiles)
-			{
-				if (File.Exists(file))
-				{
-					RecentFiles.Add(file);
-				}
-			}
 
 			XDocument rootdoc = null;
 
@@ -207,12 +199,44 @@ namespace StructuredXmlEditor.Data
 			}
 
 			LoadDefinitions();
+
+			var recentFiles = GetSetting("RecentFiles", new string[0]);
+			foreach (var file in recentFiles)
+			{
+				if (File.Exists(file))
+				{
+					try
+					{
+						if (file.EndsWith(".xmldef"))
+						{
+							var Definition = RootDefinition;
+
+							RecentFiles.Add(new FileWrapper(file, Definition.FileIcon, Definition.FileColourBrush));
+						}
+						else
+						{
+							var doc = XDocument.Load(file);
+							var fileTypeName = doc.Root.Name.ToString();
+							var dataDef = SupportedResourceTypes[fileTypeName.ToLower()];
+							var Definition = dataDef;
+
+							RecentFiles.Add(new FileWrapper(file, Definition.FileIcon, Definition.FileColourBrush));
+						}
+					}
+					catch (Exception)
+					{
+
+					}
+				}
+			}
+
 			LoadBackups();
 
 			Tools.Add(new UndoHistoryTool(this));
 			Tools.Add(new StartPage(this));
 			Tools.Add(new FocusTool(this));
 			Tools.Add(new ProjectViewTool(this));
+			Tools.Add(new TemplateCreatorTool(this));
 
 			Thread workerThread = new Thread(WorkerThreadLoop);
 			workerThread.IsBackground = true;
@@ -281,7 +305,7 @@ namespace StructuredXmlEditor.Data
 			StoreSetting("ProjectRoot", ProjectRoot);
 
 			RecentFiles.Clear();
-			StoreSetting("RecentFiles", RecentFiles.ToArray());
+			StoreSetting("RecentFiles", RecentFiles.Select(e => e.Path).ToArray());
 
 			LoadDefinitions();
 		}
@@ -413,14 +437,41 @@ namespace StructuredXmlEditor.Data
 				try
 				{
 					var filedoc = XDocument.Load(file);
-					var dataType = filedoc.Elements().First().Attribute("DataType")?.Value?.ToString().ToLower() ?? "xml";
-					var customExtension = filedoc.Elements().First().Attribute("Extension")?.Value?.ToString();
+					var firstEl = filedoc.Elements().First();
+
+					var dataType = firstEl.Attribute("DataType")?.Value?.ToString().ToLower() ?? "xml";
+					var customExtension = firstEl.Attribute("Extension")?.Value?.ToString();
+					Brush brush = Brushes.White;
+
+					var colour = firstEl.Attribute("Colour")?.Value?.ToString();
+					if (colour != null)
+					{
+						var split = colour.Split(',');
+						var r = byte.Parse(split[0]);
+						var g = byte.Parse(split[1]);
+						var b = byte.Parse(split[2]);
+						var c = Color.FromArgb(255, r, g, b);
+						brush = new SolidColorBrush(c);
+					}
+
+					string iconFile = "/Resources/File.png";
+					var iconFileEl = firstEl.Attribute("Icon")?.Value?.ToString();
+					if (iconFileEl != null)
+					{
+						var fullFile = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Workspace.Instance.ProjectRoot), iconFileEl));
+						if (File.Exists(fullFile))
+						{
+							iconFile = fullFile;
+						}
+					}
 
 					foreach (var el in filedoc.Elements().First().Elements())
 					{
 						var def = DataDefinition.LoadDefinition(el);
 						def.DataType = dataType;
 						def.CustomExtension = customExtension;
+						def.FileColourBrush = brush;
+						def.FileIcon = iconFile;
 						def.SrcFile = file;
 
 						var defname = def.Name.ToLower();
@@ -452,7 +503,7 @@ namespace StructuredXmlEditor.Data
 
 							if (def.CustomExtension != null)
 							{
-								var ext = "." + def.CustomExtension;
+								var ext = "." + def.CustomExtension.ToLower();
 								if (SupportedExtensionMap.ContainsKey(ext)) throw new Exception("Duplicate extension for " + ext + ". Found in " + def.Name + " and " + SupportedExtensionMap[ext].Name);
 								SupportedExtensionMap[ext] = def;
 							}
@@ -514,6 +565,9 @@ namespace StructuredXmlEditor.Data
 			foreach (var el in xmldefDoc.Elements().First().Elements())
 			{
 				var def = DataDefinition.LoadDefinition(el);
+				def.DataType = "xml";
+				def.FileIcon = "/Resources/DefIcon.png";
+
 				var defname = def.Name.ToLower();
 				var name = el.Name.ToString().ToLower();
 				if (name.EndsWith("def"))
@@ -637,7 +691,7 @@ namespace StructuredXmlEditor.Data
 							// attempt to load to check its vaguely valid
 							var doc = OpenImpl(file);
 
-							BackupDocuments.Add(file);
+							BackupDocuments.Add(new FileWrapper(file, doc.Icon, doc.FontColour));
 						}
 						catch (Exception)
 						{
@@ -677,6 +731,11 @@ namespace StructuredXmlEditor.Data
 		//-----------------------------------------------------------------------
 		public Document Open(string path, bool isBackup = false)
 		{
+			if (!File.Exists(path))
+			{
+				return null;
+			}
+
 			try
 			{
 				foreach (var openDoc in Documents)
@@ -699,15 +758,21 @@ namespace StructuredXmlEditor.Data
 
 					if (!isBackup)
 					{
-						RecentFiles.Remove(path);
-						RecentFiles.Insert(0, path);
+						var entry = RecentFiles.FirstOrDefault(e => e.Path == path);
+						if (entry == null)
+						{
+							entry = new FileWrapper(path, document.Icon, document.FontColour);
+						}
+
+						RecentFiles.Remove(entry);
+						RecentFiles.Insert(0, entry);
 
 						while (RecentFiles.Count > 10)
 						{
 							RecentFiles.RemoveAt(RecentFiles.Count - 1);
 						}
 
-						StoreSetting("RecentFiles", RecentFiles.ToArray());
+						StoreSetting("RecentFiles", RecentFiles.Select(e => e.Path).ToArray());
 					}
 
 					return document;
@@ -860,22 +925,26 @@ namespace StructuredXmlEditor.Data
 				if (graphdef != null && graphdef.FlattenData)
 				{
 					var nodesEl = firstEl.Element(graphdef.NodeStoreName);
-					nodesEl.Remove();
 
-					var item = matchedDef.LoadData(firstEl, document.UndoRedo);
-					document.SetData(item);
-
-					foreach (var el in nodesEl.Elements())
+					if (nodesEl != null)
 					{
-						var name = el.Name.ToString().ToLower();
-						var def = ReferenceableDefinitions[matchedDef.SrcFile].ContainsKey(name) ? ReferenceableDefinitions[matchedDef.SrcFile][name] : ReferenceableDefinitions[""][name];
+						nodesEl.Remove();
 
-						var node = def.LoadData(el, document.UndoRedo);
+						var item = matchedDef.LoadData(firstEl, document.UndoRedo);
+						document.SetData(item);
 
-						if (!document.Data.GraphNodeItems.Contains(node as GraphNodeItem))
+						foreach (var el in nodesEl.Elements())
 						{
-							document.Data.GraphNodeItems.Add(node as GraphNodeItem);
-							node.DataModel = document.Data;
+							var name = el.Name.ToString().ToLower();
+							var def = ReferenceableDefinitions[matchedDef.SrcFile].ContainsKey(name) ? ReferenceableDefinitions[matchedDef.SrcFile][name] : ReferenceableDefinitions[""][name];
+
+							var node = def.LoadData(el, document.UndoRedo);
+
+							if (!document.Data.GraphNodeItems.Contains(node as GraphNodeItem))
+							{
+								document.Data.GraphNodeItems.Add(node as GraphNodeItem);
+								node.DataModel = document.Data;
+							}
 						}
 					}
 				}
@@ -885,7 +954,20 @@ namespace StructuredXmlEditor.Data
 					document.SetData(item);
 				}
 
-				
+				var commentsStr = firstEl.Attribute(DataDefinition.MetaNS + "GraphCommentData")?.Value;
+				if (commentsStr != null)
+				{
+					document.Data.GraphCommentItems.AddRange(GraphCommentItem.ParseGraphComments(document.Data, document.UndoRedo, commentsStr));
+
+					foreach (var node in document.Data.GraphNodeItems)
+					{
+						if (node.Comment != null)
+						{
+							var comment = document.Data.GraphCommentItems.FirstOrDefault(e => e.GUID == node.Comment);
+							comment.Nodes.Add(node);
+						}
+					}
+				}
 			}
 
 			return document;
@@ -1304,6 +1386,7 @@ namespace StructuredXmlEditor.Data
 			{
 				var el = new XElement("Data");
 				el.Add(new XAttribute("Name", def.Name));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "String"));
 
 				return el;
@@ -1312,6 +1395,7 @@ namespace StructuredXmlEditor.Data
 			{
 				var el = new XElement("Data");
 				el.Add(new XAttribute("Name", def.Name));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "File"));
 
 				return el;
@@ -1320,6 +1404,7 @@ namespace StructuredXmlEditor.Data
 			{
 				var el = new XElement("Data");
 				el.Add(new XAttribute("Name", def.Name));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "Boolean"));
 
 				return el;
@@ -1332,6 +1417,7 @@ namespace StructuredXmlEditor.Data
 				el.Add(new XAttribute("Name", def.Name));
 				el.Add(new XAttribute("Min", ndef.MinValue));
 				el.Add(new XAttribute("Max", ndef.MaxValue));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				if (ndef.UseIntegers) el.Add(new XAttribute("Type", "int"));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "Number"));
 
@@ -1343,6 +1429,7 @@ namespace StructuredXmlEditor.Data
 
 				var el = new XElement("Data");
 				el.Add(new XAttribute("Name", def.Name));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				el.Add(new XAttribute("EnumValues", string.Join(",", ndef.EnumValues.OrderBy(e => e))));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "Enum"));
 
@@ -1354,14 +1441,26 @@ namespace StructuredXmlEditor.Data
 
 				var el = new XElement("Definition");
 				el.Add(new XAttribute("Name", def.Name));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "Struct"));
 
+				var hasNameChild = false;
 				foreach (var cdef in ndef.Children)
 				{
 					var cel = DefinitionToElement(cdef);
 					cel.Name = "Data";
 
+					if (cdef.Name.ToLower() == "name")
+					{
+						hasNameChild = true;
+					}
+
 					el.Add(cel);
+				}
+
+				if (hasNameChild)
+				{
+					el.Add(new XAttribute("Description", "{name}"));
 				}
 
 				return el;
@@ -1372,6 +1471,7 @@ namespace StructuredXmlEditor.Data
 
 				var el = new XElement("Definition");
 				el.Add(new XAttribute("Name", def.Name));
+				el.Add(new XAttribute("SkipIfDefault", "false"));
 				el.Add(new XAttribute(DataDefinition.MetaNS + "RefKey", "Collection"));
 
 				var cel = DefinitionToElement(ndef.ChildDefinitions[0].WrappedDefinition);
@@ -1430,12 +1530,18 @@ namespace StructuredXmlEditor.Data
 		//-----------------------------------------------------------------------
 		public void New(string dataType, string initialDirectory = null)
 		{
+			var data = SupportedResourceTypes[dataType.ToLower()];
+			New(data, initialDirectory);
+		}
+
+		//-----------------------------------------------------------------------
+		public void New(DataDefinition dataType, string initialDirectory = null)
+		{
 			Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
 
 			if (initialDirectory != null) dlg.InitialDirectory = initialDirectory;
 
-			var data = SupportedResourceTypes[dataType.ToLower()];
-			var ext = data.Extension;
+			var ext = dataType.Extension;
 
 			dlg.DefaultExt = "." + ext;
 			dlg.Filter = ext.ToUpper() + " File (*." + ext + ")|*." + ext;
@@ -1449,7 +1555,7 @@ namespace StructuredXmlEditor.Data
 
 				using (document.UndoRedo.DisableUndoScope())
 				{
-					var item = data.CreateData(document.UndoRedo);
+					var item = dataType.CreateData(document.UndoRedo);
 					document.SetData(item);
 				}
 
@@ -1459,6 +1565,23 @@ namespace StructuredXmlEditor.Data
 
 				path = document.Path;
 			}
+		}
+
+		//-----------------------------------------------------------------------
+		public void NewFromDef(DataDefinition data, string path)
+		{
+			var ext = data.Extension;
+			var document = new Document(path, this);
+
+			using (document.UndoRedo.DisableUndoScope())
+			{
+				var item = data.CreateData(document.UndoRedo);
+				document.SetData(item);
+			}
+
+			Documents.Add(document);
+
+			Current = document;
 		}
 
 		//-----------------------------------------------------------------------
@@ -1476,10 +1599,16 @@ namespace StructuredXmlEditor.Data
 			{
 				Current?.SaveAs(dlg.FileName);
 
-				RecentFiles.Remove(dlg.FileName);
-				RecentFiles.Insert(0, dlg.FileName);
+				var entry = RecentFiles.FirstOrDefault(e => e.Path == dlg.FileName);
+				if (entry == null)
+				{
+					entry = new FileWrapper(dlg.FileName, Current.Icon, Current.FontColour);
+				}
 
-				StoreSetting("RecentFiles", RecentFiles.ToArray());
+				RecentFiles.Remove(entry);
+				RecentFiles.Insert(0, entry);
+
+				StoreSetting("RecentFiles", RecentFiles.Select(e => e.Path).ToArray());
 			}
 		}
 
@@ -1490,10 +1619,16 @@ namespace StructuredXmlEditor.Data
 			{
 				Current.Save();
 
-				RecentFiles.Remove(Current.Path);
-				RecentFiles.Insert(0, Current.Path);
+				var entry = RecentFiles.FirstOrDefault(e => e.Path == Current.Path);
+				if (entry == null)
+				{
+					entry = new FileWrapper(Current.Path, Current.Icon, Current.FontColour);
+				}
 
-				StoreSetting("RecentFiles", RecentFiles.ToArray());
+				RecentFiles.Remove(entry);
+				RecentFiles.Insert(0, entry);
+
+				StoreSetting("RecentFiles", RecentFiles.Select(e => e.Path).ToArray());
 			}
 		}
 
@@ -1550,6 +1685,21 @@ namespace StructuredXmlEditor.Data
 				Feedback = "";
 				RaisePropertyChangedEvent("Feedback");
 			}
+		}
+	}
+
+	//-----------------------------------------------------------------------
+	public class FileWrapper
+	{
+		public string Path { get; set; }
+		public string Icon { get; set; }
+		public Brush Brush { get; set; }
+		
+		public FileWrapper(string path, string icon, Brush brush)
+		{
+			Path = path;
+			Icon = icon;
+			Brush = brush;
 		}
 	}
 }

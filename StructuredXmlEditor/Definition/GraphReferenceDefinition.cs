@@ -61,6 +61,12 @@ namespace StructuredXmlEditor.Definition
 				}
 			}
 
+			if (si.ControlPoints.Count > 0)
+			{
+				var flatControlPoints = string.Join("|", si.ControlPoints.Select(e => "" + e.Position.X + "," + e.Position.Y + "," + e.Flip));
+				el.SetAttributeValue(DataDefinition.MetaNS + "ControlPoints", flatControlPoints);
+			}
+
 			foreach (var att in item.Attributes)
 			{
 				var primDef = att.Definition as PrimitiveDataDefinition;
@@ -118,6 +124,21 @@ namespace StructuredXmlEditor.Definition
 				item.Attributes.Add(attItem);
 			}
 
+			var controlPoints = element.Attribute(DataDefinition.MetaNS + "ControlPoints")?.Value;
+			if (controlPoints != null)
+			{
+				var points = controlPoints.Split('|');
+				foreach (var point in points)
+				{
+					var split = point.Split(',');
+					var x = double.Parse(split[0]);
+					var y = double.Parse(split[1]);
+					var flip = split.Length == 3 ? bool.Parse(split[2]) : false;
+
+					item.ControlPoints.Add(new GraphReferenceControlPoint(item, new System.Windows.Point(x, y), flip));
+				}
+			}
+
 			return item;
 		}
 
@@ -133,17 +154,17 @@ namespace StructuredXmlEditor.Definition
 			{
 				if (!keyString.Contains('('))
 				{
-					Keys.AddRange(keyString.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => new Tuple<string, string>(e, "Node")));
+					Keys.AddRange(keyString.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => new Tuple<string, string>(e.Trim(), "Node")));
 				}
 				else
 				{
 					var categories = keyString.Split(new char[] { ')' }, StringSplitOptions.RemoveEmptyEntries);
 					foreach (var categoryString in categories)
 					{
-						var split = categoryString.Split('(');
-						var category = split[0];
+						var split = categoryString.Trim().Split('(');
+						var category = split[0].Trim();
 						if (category.StartsWith(",")) category = category.Substring(1);
-						Keys.AddRange(split[1].Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => new Tuple<string, string>(e, category)));
+						Keys.AddRange(split[1].Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => new Tuple<string, string>(e.Trim(), category)));
 					}
 				}
 
